@@ -12,6 +12,8 @@ Windows 10/11 x64 上的轻量 Sunshine 游戏库同步工具。Rust / Tauri 2 �
 4. 在 **Sunshine → View details** 预览新增、修改、删除，然后 **Apply Sync**。也可直接点右上角 **Sync Now**。
 5. 在 **Settings** 开启 Auto Sync 后，manifest 变化会等待 3 秒再合并同步。安装 / 卸载或新库目录变更会更新监听路径。
 
+界面提供英文和简体中文。默认跟随 Windows 显示语言，可在 **Settings → General → Language** 手动选择并保存；语言切换会立即应用到界面和托盘菜单。
+
 Reload 默认 **None**，同步后需要手动重启 Sunshine 才能刷新 Moonlight 列表。可改成 **Restart Sunshine** 或自定义命令；只有配置实际变化时才执行，一次批量最多执行一次。重启 Windows 服务可能需要管理员权限，也可能中断正在串流的会话。程序不会主动请求提权。
 
 关闭按钮默认隐藏到托盘；可改成 **Exit application**。托盘的 **Exit** 会取消下载与监听，等待正在提交的同步完成，再退出整个进程。关闭为 Exit 时不保留后台进程。开机启动按用户注册，不安装 Windows 服务。
@@ -40,7 +42,7 @@ pnpm tauri build
 - 安装包：`src-tauri/target/release/bundle/nsis/`
 - `pnpm dev` 只预览前端，明确显示 Desktop preview，不伪造本机数据。
 
-桌面集成测试可运行 `./scripts/desktop-fixture.ps1 -Launch`，它在 `.test-data/desktop/` 创建真实格式的测试 manifests 和独立 apps.json，并通过 `SUNSHINE_LIBRARY_SYNC_DATA` 隔离应用配置。它不会修改本机 Sunshine 文件。测试结束后退出这个应用再运行正常版本。
+桌面集成测试先运行 `cargo build --manifest-path src-tauri/Cargo.toml`，再运行 `./scripts/desktop-fixture.ps1 -Launch`。脚本只启动 Debug EXE，在 `.test-data/desktop/` 创建真实格式的测试 manifests 和独立 apps.json；测试窗口会标明“测试数据”。`SUNSHINE_LIBRARY_SYNC_DATA` 仅在 Debug 构建中生效，Release EXE 和安装包始终使用 `%LOCALAPPDATA%\SunshineLibrarySync`，不读取测试数据目录。测试结束后从托盘退出 Debug 应用。两种构建使用同一个单实例标识，启动前请先退出已运行的另一版本。
 
 ## 同步的数据保护
 
@@ -58,7 +60,7 @@ pnpm tauri build
 
 ## 本地文件
 
-默认目录为 `%LOCALAPPDATA%\SunshineLibrarySync`，可用 `SUNSHINE_LIBRARY_SYNC_DATA` 覆盖：
+默认目录为 `%LOCALAPPDATA%\SunshineLibrarySync`。仅 Debug 构建可用 `SUNSHINE_LIBRARY_SYNC_DATA` 指定隔离的测试目录：
 
 ```text
 config.toml                    设置（包括可选 API Key）

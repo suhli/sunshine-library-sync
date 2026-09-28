@@ -24,6 +24,7 @@ pub struct General {
     pub start_minimized: bool,
     pub close_behavior: String,
     pub theme: String,
+    pub language: String,
 }
 impl Default for General {
     fn default() -> Self {
@@ -33,6 +34,7 @@ impl Default for General {
             start_minimized: false,
             close_behavior: "tray".into(),
             theme: "system".into(),
+            language: "system".into(),
         }
     }
 }
@@ -108,6 +110,9 @@ impl Settings {
         if !["system", "light", "dark"].contains(&self.general.theme.as_str()) {
             bail!("Invalid theme");
         }
+        if !["system", "en", "zh-CN"].contains(&self.general.language.as_str()) {
+            bail!("Invalid language");
+        }
         if !["none", "restart", "command"].contains(&self.sunshine.reload_mode.as_str()) {
             bail!("Invalid Sunshine reload mode");
         }
@@ -152,11 +157,58 @@ impl Settings {
     }
 }
 pub fn data_root() -> PathBuf {
-    // Explicit override supports portable use and isolated integration tests.
-    std::env::var_os("SUNSHINE_LIBRARY_SYNC_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_else(|| ".".into()))
-                .join("SunshineLibrarySync")
-        })
+    data_root_for(
+        cfg!(debug_assertions),
+        std::env::var_os("SUNSHINE_LIBRARY_SYNC_DATA"),
+        std::env::var_os("LOCALAPPDATA"),
+    )
+}
+
+fn data_root_for(
+    debug_build: bool,
+    fixture_override: Option<std::ffi::OsString>,
+    local_app_data: Option<std::ffi::OsString>,
+) -> PathBuf {
+    if debug_build {
+        if let Some(path) = fixture_override {
+            return PathBuf::from(path);
+        }
+    }
+    PathBuf::from(local_app_data.unwrap_or_else(|| ".".into())).join("SunshineLibrarySync")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{data_root_for, Settings};
+
+    #[test]
+    fn fixture_override_is_only_used_by_debug_builds() {
+        let fixture = Some("test-fixture".into());
+        let local = Some("user-data".into());
+        assert_eq!(
+            data_root_for(true, fixture.clone(), local.clone()),
+            std::path::PathBuf::from("test-fixture")
+        );
+        assert_eq!(
+            data_root_for(false, fixture, local),
+            std::path::PathBuf::from("user-data").join("SunshineLibrarySync")
+        );
+    }
+
+    #[test]
+    fn previous_settings_follow_system_language_and_invalid_language_is_rejected() {
+        let mut document = toml::Value::try_from(Settings::default()).unwrap();
+        document["general"]
+            .as_table_mut()
+            .unwrap()
+            .remove("language");
+        let migrated: Settings = document.clone().try_into().unwrap();
+        assert_eq!(migrated.general.language, "system");
+        document["general"]
+            .as_table_mut()
+            .unwrap()
+            .insert("language".into(), "unsupported".into());
+        let invalid: Settings = document.try_into().unwrap();
+        assert!(invalid.validate().is_err());
+    }
 }

@@ -52,8 +52,8 @@ steamgriddb_api_key = ""
 Write-Output "Fixture data: $fixtureRoot"
 if ($Launch) {
     $env:SUNSHINE_LIBRARY_SYNC_DATA = $dataRoot
-    $executable = Join-Path $projectRoot 'src-tauri\target\release\sunshine-library-sync.exe'
-    if (-not (Test-Path -LiteralPath $executable)) { throw 'Build the release executable first with pnpm tauri build --no-bundle.' }
+    $executable = Join-Path $projectRoot 'src-tauri\target\debug\sunshine-library-sync.exe'
+    if (-not (Test-Path -LiteralPath $executable)) { throw 'Build the Debug executable first with cargo build --manifest-path src-tauri/Cargo.toml.' }
     $process = Start-Process -FilePath $executable -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
     Write-Output "Launched fixture process: $($process.Id)"
 }

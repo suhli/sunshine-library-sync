@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Switch as SwitchPrimitive } from "bits-ui";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import { t } from "$lib/i18n";
 
 	let {
 		ref = $bindable(null),
@@ -42,6 +43,6 @@
 	</SwitchPrimitive.Root>
 	<span
 		aria-hidden="true"
-		class={cn("w-6 select-none text-xs font-medium", checked ? "text-primary" : "text-muted-foreground", restProps.disabled && "opacity-50")}
-	>{checked ? "On" : "Off"}</span>
+		class={cn("w-[28px] select-none text-xs font-medium", checked ? "text-primary" : "text-muted-foreground", restProps.disabled && "opacity-50")}
+	>{$t(checked ? "On" : "Off")}</span>
 </span>

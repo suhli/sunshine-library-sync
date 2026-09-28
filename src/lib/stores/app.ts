@@ -11,6 +11,7 @@ import { games } from './games';
 import { sunshine } from './sunshine';
 import { settings } from './settings';
 import { syncBusy, scanning, lastSync, preview, previewOpen, appError, paused } from './sync';
+import { fixtureMode, systemLocale, tr } from '$lib/i18n';
 
 export const page = writable<'Overview' | 'Games' | 'Providers' | 'Sunshine' | 'Settings'>('Overview');
 export const toast = writable<{ text: string; error: boolean } | null>(null);
@@ -20,12 +21,15 @@ export function report(error: unknown) { notify(error instanceof Error ? error.m
 export function accept(snapshot: Snapshot) { providers.set(snapshot.scan.providers); games.set(snapshot.scan.games); sunshine.set(snapshot.sunshine); lastSync.set(snapshot.last_sync); preview.set(snapshot.preview); appError.set(snapshot.error); scanning.set(snapshot.scanning); }
 function syncMessage(result: SyncResult) {
   const p = result.preview;
-  notify(result.reload_error ? `Library saved. ${result.reload_error}` : result.changed ? `Sync completed · ${p.added.length} added, ${p.updated.length} updated, ${p.removed.length} removed` : 'Library is already up to date.', !!result.reload_error);
+  notify(result.reload_error ? tr('Library saved. {error}', { error: result.reload_error }) : result.changed ? tr('Sync completed · {added} added, {updated} updated, {removed} removed', { added: p.added.length, updated: p.updated.length, removed: p.removed.length }) : tr('Library is already up to date.'), !!result.reload_error);
 }
 export async function initialize(): Promise<() => void> {
   if (!desktop) { scanning.set(false); return () => {}; }
   const off: UnlistenFn[] = [];
   try {
+    const runtime = await settingsApi.getRuntimeInfo();
+    systemLocale.set(runtime.system_locale);
+    fixtureMode.set(runtime.fixture_mode);
     off.push(await listen<Snapshot>('library-updated', event => accept(event.payload)));
     off.push(await listen<string>('background-error', event => appError.set(event.payload)));
     off.push(await listen<boolean>('auto-sync-paused', event => paused.set(event.payload)));
@@ -63,9 +67,9 @@ export async function toggleProvider(id: string, enabled: boolean) {
 export async function exclude(key: string, excluded: boolean) {
   settingsOperations = settingsOperations.then(async () => {
     settings.set(await gamesApi.excludeGame(key, excluded));
-    notify(excluded ? 'Excluded. Apply Sync to remove its managed entry.' : 'Included in the next sync.');
+    notify(tr(excluded ? 'Excluded. Apply Sync to remove its managed entry.' : 'Included in the next sync.'));
   }).catch(report);
   await settingsOperations;
 }
 export async function openLocation(kind: Parameters<typeof gamesApi.openLocation>[0], key?: string) { try { await gamesApi.openLocation(kind, key); } catch (error) { report(error); } }
-export async function restart() { syncBusy.set(true); try { await sunshineApi.restartSunshine(); notify('Sunshine restarted.'); accept(await providerApi.scanAll()); } catch (error) { report(error); } finally { syncBusy.set(false); } }
+export async function restart() { syncBusy.set(true); try { await sunshineApi.restartSunshine(); notify(tr('Sunshine restarted.')); accept(await providerApi.scanAll()); } catch (error) { report(error); } finally { syncBusy.set(false); } }

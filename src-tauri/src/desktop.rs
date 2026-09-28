@@ -1,7 +1,35 @@
 use crate::{
     app_state::{self, AppState},
-    commands, config, watcher,
+    commands, config, locale, watcher,
 };
+
+struct TrayItems {
+    open: MenuItem<tauri::Wry>,
+    sync: MenuItem<tauri::Wry>,
+    pause: CheckMenuItem<tauri::Wry>,
+    status: MenuItem<tauri::Wry>,
+    exit: MenuItem<tauri::Wry>,
+}
+
+pub(crate) fn update_tray_locale(app: &tauri::AppHandle) {
+    let items = app.state::<TrayItems>();
+    let state = app.state::<Arc<AppState>>();
+    let language = locale::selected_locale(&state.settings()).to_owned();
+    let service = state
+        .snapshot
+        .read()
+        .unwrap()
+        .sunshine
+        .service_status
+        .clone();
+    let _ = items.open.set_text(locale::tray_label(&language, "open"));
+    let _ = items.sync.set_text(locale::tray_label(&language, "sync"));
+    let _ = items.pause.set_text(locale::tray_label(&language, "pause"));
+    let _ = items
+        .status
+        .set_text(locale::tray_status(&language, &service));
+    let _ = items.exit.set_text(locale::tray_label(&language, "exit"));
+}
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
@@ -54,6 +82,7 @@ pub fn run() {
         )
         .manage(state)
         .invoke_handler(tauri::generate_handler![
+            commands::get_runtime_info,
             commands::get_snapshot,
             commands::get_settings,
             commands::scan_all_games,
@@ -69,20 +98,51 @@ pub fn run() {
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>().inner().clone();
+            let language = locale::selected_locale(&state.settings()).to_owned();
             let open = MenuItem::with_id(
                 app,
                 "open",
-                "Open Sunshine Library Sync",
+                locale::tray_label(&language, "open"),
                 true,
                 None::<&str>,
             )?;
-            let sync = MenuItem::with_id(app, "sync", "Sync Now", true, None::<&str>)?;
-            let pause =
-                CheckMenuItem::with_id(app, "pause", "Pause Auto Sync", true, false, None::<&str>)?;
-            let status =
-                MenuItem::with_id(app, "status", "Sunshine: detecting…", false, None::<&str>)?;
-            let exit = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
+            let sync = MenuItem::with_id(
+                app,
+                "sync",
+                locale::tray_label(&language, "sync"),
+                true,
+                None::<&str>,
+            )?;
+            let pause = CheckMenuItem::with_id(
+                app,
+                "pause",
+                locale::tray_label(&language, "pause"),
+                true,
+                false,
+                None::<&str>,
+            )?;
+            let status = MenuItem::with_id(
+                app,
+                "status",
+                locale::tray_status(&language, "detecting"),
+                false,
+                None::<&str>,
+            )?;
+            let exit = MenuItem::with_id(
+                app,
+                "exit",
+                locale::tray_label(&language, "exit"),
+                true,
+                None::<&str>,
+            )?;
             let menu = Menu::with_items(app, &[&open, &sync, &pause, &status, &exit])?;
+            app.manage(TrayItems {
+                open,
+                sync,
+                pause,
+                status: status.clone(),
+                exit,
+            });
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Sunshine Library Sync")
@@ -114,12 +174,15 @@ pub fn run() {
                 })
                 .build(app)?;
             use tauri::Listener;
+            let status_handle = app.handle().clone();
             app.listen("library-updated", move |event| {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) {
                     let service = value["sunshine"]["service_status"]
                         .as_str()
                         .unwrap_or("unknown");
-                    let _ = status.set_text(format!("Sunshine: {service}"));
+                    let state = status_handle.state::<Arc<AppState>>();
+                    let language = locale::selected_locale(&state.settings()).to_owned();
+                    let _ = status.set_text(locale::tray_status(&language, service));
                 }
             });
             let handle = app.handle().clone();

@@ -1,14 +1,31 @@
 use crate::{
     app_state::{self, AppState, LibrarySnapshot},
     config::Settings,
+    locale,
     models::*,
     network::{ConnectionTest, NetworkService},
     providers, sunshine,
 };
+use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt;
 type Cmd<T> = Result<T, String>;
+
+#[derive(Serialize)]
+pub struct RuntimeInfo {
+    pub system_locale: String,
+    pub fixture_mode: bool,
+}
+
+#[tauri::command]
+pub fn get_runtime_info() -> RuntimeInfo {
+    RuntimeInfo {
+        system_locale: locale::system_locale().into(),
+        fixture_mode: cfg!(debug_assertions)
+            && std::env::var_os("SUNSHINE_LIBRARY_SYNC_DATA").is_some(),
+    }
+}
 
 #[tauri::command]
 pub fn get_snapshot(state: State<'_, Arc<AppState>>) -> LibrarySnapshot {
@@ -95,6 +112,7 @@ pub async fn save_settings(
         }
         *state.settings.write().unwrap() = settings.clone();
     }
+    crate::desktop::update_tray_locale(&app);
     app_state::refresh(&app, &state)
         .await
         .map_err(|e| e.to_string())?;

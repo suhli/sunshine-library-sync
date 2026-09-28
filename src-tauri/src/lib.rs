@@ -3,6 +3,7 @@ pub mod artwork;
 pub mod commands;
 pub mod config;
 mod desktop;
+mod locale;
 pub mod models;
 pub mod network;
 pub mod provider_registry;
