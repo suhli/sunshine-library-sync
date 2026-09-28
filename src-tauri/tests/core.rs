@@ -167,6 +167,93 @@ fn steam_scans_multiple_libraries_and_removal() {
     assert_eq!(provider.scan_games(&detection).unwrap().games.len(), 1);
 }
 #[test]
+fn steam_non_game_apps_are_not_games_or_sync_candidates() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("steamapps/common/Cyberpunk 2077")).unwrap();
+    fs::create_dir_all(root.join("steamapps/common/Steamworks Common Redistributables")).unwrap();
+    fs::create_dir_all(root.join("steamapps/common/Wallpaper Engine")).unwrap();
+    fs::write(
+        root.join("steamapps/appmanifest_1091500.acf"),
+        include_str!("fixtures/steam.acf"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("steamapps/appmanifest_228980.acf"),
+        include_str!("fixtures/steam.acf")
+            .replace("1091500", "228980")
+            .replace("Cyberpunk 2077", "Steamworks Common Redistributables"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("steamapps/appmanifest_431960.acf"),
+        include_str!("fixtures/steam.acf")
+            .replace("1091500", "431960")
+            .replace("Cyberpunk 2077", "Wallpaper Engine"),
+    )
+    .unwrap();
+
+    let registry: Vec<Box<dyn GameProvider>> =
+        vec![Box::new(steam::SteamProvider::new(Some(root.into())))];
+    let snapshot = provider_registry::scan_providers(&registry, &Settings::default());
+    assert!(snapshot.authoritative_providers.contains(&"steam".into()));
+    assert_eq!(snapshot.games.len(), 1);
+    assert_eq!(snapshot.games[0].key.provider_game_id, "1091500");
+    assert_eq!(snapshot.providers[0].game_count, 1);
+    assert_eq!(
+        plan(&fixture(), &ManagedState::default(), &snapshot.games)
+            .preview
+            .added
+            .len(),
+        1
+    );
+
+    for name in ["Steamworks Common Redistributables", "Wallpaper Engine"] {
+        let renamed_id = include_str!("fixtures/steam.acf").replace("Cyberpunk 2077", name);
+        assert!(
+            steam::parse_manifest(&renamed_id, Path::new("app.acf"), root)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let similarly_named =
+        include_str!("fixtures/steam.acf").replace("Cyberpunk 2077", "Wallpaper Engine 2");
+    fs::create_dir_all(root.join("steamapps/common/Wallpaper Engine 2")).unwrap();
+    assert!(
+        steam::parse_manifest(&similarly_named, Path::new("app.acf"), root)
+            .unwrap()
+            .is_some()
+    );
+}
+#[test]
+fn provider_count_uses_deduplicated_games_across_steam_libraries() {
+    let temp = tempfile::tempdir().unwrap();
+    let primary = temp.path().join("Steam");
+    let secondary = temp.path().join("Other");
+    for root in [&primary, &secondary] {
+        fs::create_dir_all(root.join("steamapps/common/Cyberpunk 2077")).unwrap();
+        fs::write(
+            root.join("steamapps/appmanifest_1091500.acf"),
+            include_str!("fixtures/steam.acf"),
+        )
+        .unwrap();
+    }
+    fs::write(
+        primary.join("steamapps/libraryfolders.vdf"),
+        format!(
+            "\"libraryfolders\" {{ \"1\" {{ \"path\" \"{}\" }} }}",
+            secondary.display()
+        ),
+    )
+    .unwrap();
+
+    let registry: Vec<Box<dyn GameProvider>> =
+        vec![Box::new(steam::SteamProvider::new(Some(primary)))];
+    let snapshot = provider_registry::scan_providers(&registry, &Settings::default());
+    assert_eq!(snapshot.games.len(), 1);
+    assert_eq!(snapshot.providers[0].game_count, 1);
+}
+#[test]
 fn missing_steam_drive_prevents_authoritative_removal() {
     let temp = tempfile::tempdir().unwrap();
     let steam = temp.path().join("Steam");

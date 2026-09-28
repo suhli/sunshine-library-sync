@@ -37,7 +37,6 @@ pub fn scan_providers(registry: &[Box<dyn GameProvider>], settings: &Settings) -
                                 if result.complete {
                                     snapshot.authoritative_providers.push(provider.id().into());
                                 }
-                                info.game_count = result.games.len();
                                 info.warnings = result.warnings;
                                 snapshot.games.extend(result.games);
                             }
@@ -50,15 +49,24 @@ pub fn scan_providers(registry: &[Box<dyn GameProvider>], settings: &Settings) -
                 info.detection = detection;
             }
         }
+        snapshot.providers.push(info);
+    }
+    let mut seen = BTreeSet::new();
+    snapshot.games.retain(|game| seen.insert(game.key.clone()));
+    // Provider counts must describe the same filtered, deduplicated games that
+    // the UI and sync engine receive.
+    for info in &mut snapshot.providers {
+        info.game_count = snapshot
+            .games
+            .iter()
+            .filter(|game| game.key.provider_id == info.id)
+            .count();
         tracing::info!(
             "[Provider:{}] Found {} games",
             info.display_name,
             info.game_count
         );
-        snapshot.providers.push(info);
     }
-    let mut seen = BTreeSet::new();
-    snapshot.games.retain(|game| seen.insert(game.key.clone()));
     snapshot
         .games
         .sort_by_key(|g| (g.name.to_lowercase(), g.key.clone()));

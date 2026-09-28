@@ -51,8 +51,18 @@ pub fn parse_manifest(input: &str, manifest: &Path, library: &Path) -> Result<Op
         .and_then(vdf::Value::object)
         .context("Missing AppState")?;
     let id = vdf::text(app, "appid")?;
-    if id.parse::<u64>().is_err() {
-        bail!("Invalid Steam appid");
+    let numeric_id: u64 = id.parse().context("Invalid Steam appid")?;
+    // Explicitly exclude the known shared runtime and Wallpaper Engine utility.
+    // Avoid broad title matching that could hide actual games.
+    if matches!(numeric_id, 228980 | 431960) {
+        return Ok(None);
+    }
+    let name = vdf::text(app, "name")?;
+    if ["Steamworks Common Redistributables", "Wallpaper Engine"]
+        .iter()
+        .any(|excluded| name.trim().eq_ignore_ascii_case(excluded))
+    {
+        return Ok(None);
     }
     let flags: u64 = vdf::text(app, "StateFlags")?
         .parse()
@@ -87,7 +97,7 @@ pub fn parse_manifest(input: &str, manifest: &Path, library: &Path) -> Result<Op
             provider_id: "steam".into(),
             provider_game_id: id.into(),
         },
-        name: vdf::text(app, "name")?.into(),
+        name: name.into(),
         install_path: install,
         manifest_path: manifest.into(),
         launch_target: LaunchTarget {
