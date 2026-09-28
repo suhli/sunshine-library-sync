@@ -5,3 +5,4 @@ src-tauri/gen/
 .test-data/
 *.log
 .DS_Store
+.pnpm-store
