@@ -51,7 +51,21 @@ export async function sync(revision: string | null = null, key: string | null = 
   catch (error) { report(error); } finally { syncBusy.set(false); }
 }
 export async function persist(value: Settings) { const saved = await settingsApi.saveSettings(value); settings.set(saved); return saved; }
-export async function toggleProvider(id: string, enabled: boolean) { const value = structuredClone(get(settings)); value.providers[id] = { ...value.providers[id], enabled, path: value.providers[id]?.path ?? null }; try { await persist(value); } catch (error) { report(error); } }
-export async function exclude(key: string, excluded: boolean) { try { settings.set(await gamesApi.excludeGame(key, excluded)); notify(excluded ? 'Excluded. Apply Sync to remove its managed entry.' : 'Included in the next sync.'); } catch (error) { report(error); } }
+let settingsOperations: Promise<void> = Promise.resolve();
+export async function toggleProvider(id: string, enabled: boolean) {
+  settingsOperations = settingsOperations.then(async () => {
+    const value = structuredClone(get(settings));
+    value.providers[id] = { ...value.providers[id], enabled, path: value.providers[id]?.path ?? null };
+    await persist(value);
+  }).catch(report);
+  await settingsOperations;
+}
+export async function exclude(key: string, excluded: boolean) {
+  settingsOperations = settingsOperations.then(async () => {
+    settings.set(await gamesApi.excludeGame(key, excluded));
+    notify(excluded ? 'Excluded. Apply Sync to remove its managed entry.' : 'Included in the next sync.');
+  }).catch(report);
+  await settingsOperations;
+}
 export async function openLocation(kind: Parameters<typeof gamesApi.openLocation>[0], key?: string) { try { await gamesApi.openLocation(kind, key); } catch (error) { report(error); } }
 export async function restart() { syncBusy.set(true); try { await sunshineApi.restartSunshine(); notify('Sunshine restarted.'); accept(await providerApi.scanAll()); } catch (error) { report(error); } finally { syncBusy.set(false); } }

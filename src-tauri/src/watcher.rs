@@ -22,14 +22,7 @@ pub fn start(app: AppHandle, state: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let mut paths_rx = state.watch_paths.subscribe();
-        let mut watcher = match RecommendedWatcher::new(
-            move |result: notify::Result<Event>| {
-                if result.as_ref().map(relevant).unwrap_or(true) {
-                    let _ = tx.try_send(result.map(|_| ()).map_err(|e| e.to_string()));
-                }
-            },
-            notify::Config::default(),
-        ) {
+        let mut watcher = match create_watcher(tx) {
             Ok(w) => w,
             Err(e) => {
                 let _ = app.emit("background-error", format!("File watcher failed: {e}"));
@@ -90,4 +83,43 @@ pub fn start(app: AppHandle, state: Arc<AppState>) {
         // Dropping the watcher closes its native notification handles.
         drop(watcher);
     });
+}
+
+fn create_watcher(
+    tx: tokio::sync::mpsc::Sender<Result<(), String>>,
+) -> notify::Result<RecommendedWatcher> {
+    RecommendedWatcher::new(
+        move |result: notify::Result<Event>| {
+            if result.as_ref().map(relevant).unwrap_or(true) {
+                let _ = tx.try_send(result.map(|_| ()).map_err(|e| e.to_string()));
+            }
+        },
+        notify::Config::default(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn manifest_event_arrives_and_drop_closes_native_watcher() {
+        let temp = tempfile::tempdir().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let mut watcher = create_watcher(tx).unwrap();
+        watcher
+            .watch(temp.path(), RecursiveMode::NonRecursive)
+            .unwrap();
+        std::fs::write(temp.path().join("install.item"), b"{}").unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .is_ok());
+        drop(watcher);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while rx.recv().await.is_some() {}
+        })
+        .await
+        .expect("Watcher thread and notification handles must close");
+    }
 }
