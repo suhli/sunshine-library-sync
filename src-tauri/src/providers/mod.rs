@@ -20,6 +20,6 @@ pub fn registry(settings: &Settings) -> Vec<Box<dyn GameProvider>> {
 }
 
 #[cfg(windows)]
-pub fn registry_string(root: winreg::enums::HKEY, key: &str, value: &str) -> Option<String> {
+pub fn registry_string(root: winreg::HKEY, key: &str, value: &str) -> Option<String> {
     winreg::RegKey::predef(root).open_subkey(key).ok()?.get_value::<String, _>(value).ok()
 }
