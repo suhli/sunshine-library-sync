@@ -1,0 +1,14 @@
+pub mod config;
+pub mod models;
+pub mod providers;
+pub mod provider_registry;
+pub mod storage;
+pub mod sunshine;
+pub mod sync;
+pub mod network;
+pub mod artwork;
+pub mod watcher;
+pub mod app_state;
+pub mod commands;
+mod desktop;
+pub use desktop::run;
