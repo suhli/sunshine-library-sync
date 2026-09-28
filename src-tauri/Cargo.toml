@@ -3,12 +3,12 @@ name = "sunshine-library-sync"
 version = "0.1.0"
 description = "A local-first Sunshine library synchronizer for Windows"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.90"
 default-run = "sunshine-library-sync"
 
 [lib]
 name = "sunshine_library_sync"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

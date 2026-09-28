@@ -1,0 +1,12 @@
+{
+  "AppName": "A Game:With Spaces",
+  "DisplayName": "Epic Test Game",
+  "InstallLocation": "REPLACE_INSTALL",
+  "LaunchExecutable": "Game.exe",
+  "CatalogNamespace": "test-namespace",
+  "CatalogItemId": "catalog-id",
+  "AppCategories": ["games"],
+  "bIsIncompleteInstall": false,
+  "bIsApplication": true,
+  "bIsExecutable": true
+}

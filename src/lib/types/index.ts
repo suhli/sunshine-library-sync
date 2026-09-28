@@ -2,7 +2,7 @@ export interface GameKey { provider_id: string; provider_game_id: string }
 export interface Game { key: GameKey; name: string; install_path: string; manifest_path: string; launch_target: { uri: string }; artwork: string | null; metadata: Record<string, unknown>; sync_status: string }
 export interface ProviderInfo { id: string; display_name: string; icon: string; enabled: boolean; detection: { installed: boolean; launcher_path: string | null; data_paths: string[]; version: string | null }; game_count: number; error: string | null; warnings: string[] }
 export interface Change { key: string; name: string; provider_id: string }
-export interface SyncPreview { added: Change[]; updated: Change[]; removed: Change[]; unchanged: number; warnings: string[]; revision: string }
+export interface SyncPreview { added: Change[]; updated: Change[]; removed: Change[]; unchanged: number; warnings: string[]; conflicts: Change[]; revision: string }
 export interface SyncResult { preview: SyncPreview; changed: boolean; completed_at: number; reload_error: string | null }
 export interface SunshineStatus { detected: boolean; install_path: string | null; apps_path: string | null; version: string | null; service_name: string | null; service_status: string; applications: number; managed: number; error: string | null }
 export interface Snapshot { scan: { providers: ProviderInfo[]; games: Game[]; authoritative_providers: string[]; watch_paths: string[] }; sunshine: SunshineStatus; last_sync: SyncResult | null; preview: SyncPreview | null; error: string | null; scanning: boolean }
