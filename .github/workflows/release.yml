@@ -1,0 +1,105 @@
+name: Publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable version, for example 0.2.0 (optional v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    steps:
+      - name: Require main branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw 'Run this workflow from the main branch.'
+          }
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Prepare and validate version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $version = node scripts/set-version.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to set release version.' }
+          $version = $version.Trim()
+          $tag = "v$version"
+          $existing = git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check remote tags.' }
+          if ($existing) { throw "Tag $tag already exists." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+      - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/set-version.test.mjs
+      - run: pnpm check
+      - run: pnpm check:i18n
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: pnpm tauri build
+      - name: Package portable ZIP and NSIS installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/package-release.ps1 -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sunshine-Library-Sync-v${{ steps.version.outputs.version }}-Windows
+          path: |
+            release/*.zip
+            release/*.exe
+          if-no-files-found: error
+      - name: Create tag and GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m "Release $env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to commit release metadata.' }
+          } elseif ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect release metadata changes.'
+          }
+          git tag $env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create release tag.' }
+          git push origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to push release tag.' }
+          $assets = @(
+            "release/Sunshine-Library-Sync_v$($env:RELEASE_VERSION)_win10-win11_x64_portable.zip",
+            "release/Sunshine-Library-Sync_v$($env:RELEASE_VERSION)_win10-win11_x64_nsis.exe"
+          )
+          gh release create $env:RELEASE_TAG $assets --verify-tag --title "Sunshine Library Sync $env:RELEASE_TAG" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create GitHub Release.' }

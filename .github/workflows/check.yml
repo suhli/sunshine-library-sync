@@ -21,6 +21,7 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/set-version.test.mjs
       - run: pnpm check
       - run: pnpm check:i18n
       - run: pnpm build

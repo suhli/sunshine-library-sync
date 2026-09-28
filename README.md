@@ -42,6 +42,17 @@ pnpm tauri build
 - 安装包：`src-tauri/target/release/bundle/nsis/`
 - `pnpm dev` 只预览前端，明确显示 Desktop preview，不伪造本机数据。
 
+## GitHub Actions 发布
+
+现有 `Windows checks` 工作流在 push / pull request 时运行前端检查、Rust 测试与 Windows 构建。发布时在 GitHub 的 **Actions → Publish Windows release → Run workflow** 中选择 `main`，输入稳定版本号，例如 `0.2.0`（也接受 `v0.2.0`）。版本 tag 已存在时会停止，不覆盖旧发布。
+
+发布工作流会将输入版本写入 `package.json`、Tauri 配置、`Cargo.toml` 和 `Cargo.lock`，完成检查和 Windows x64 构建后创建 `v<version>` tag 与 GitHub Release。版本变更保存在 tag 指向的提交中，不修改 `main` 分支。Release 附带两个文件：
+
+- `Sunshine-Library-Sync_v<version>_win10-win11_x64_portable.zip`：免安装 EXE 和 README。
+- `Sunshine-Library-Sync_v<version>_win10-win11_x64_nsis.exe`：当前用户安装的 NSIS 安装包。
+
+Portable 表示无需安装程序；它仍需要 Windows WebView2 Runtime，设置和缓存仍保存在 `%LOCALAPPDATA%\SunshineLibrarySync`。
+
 桌面集成测试先运行 `cargo build --manifest-path src-tauri/Cargo.toml`，再运行 `./scripts/desktop-fixture.ps1 -Launch`。脚本只启动 Debug EXE，在 `.test-data/desktop/` 创建真实格式的测试 manifests 和独立 apps.json；测试窗口会标明“测试数据”。`SUNSHINE_LIBRARY_SYNC_DATA` 仅在 Debug 构建中生效，Release EXE 和安装包始终使用 `%LOCALAPPDATA%\SunshineLibrarySync`，不读取测试数据目录。测试结束后从托盘退出 Debug 应用。两种构建使用同一个单实例标识，启动前请先退出已运行的另一版本。
 
 ## 同步的数据保护
