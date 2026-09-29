@@ -160,7 +160,9 @@ pub fn run() {
                         let app = app.clone();
                         let state = app.state::<Arc<AppState>>().inner().clone();
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = app_state::synchronize(&app, &state, None, None).await {
+                            if let Err(e) =
+                                app_state::synchronize(&app, &state, None, None, false).await
+                            {
                                 let _ = app.emit("background-error", e.to_string());
                             }
                         });
@@ -203,7 +205,8 @@ pub fn run() {
                     state.emit(&handle);
                 }
                 if state.startup_error.is_none() && state.settings().general.auto_sync {
-                    if let Err(e) = app_state::synchronize(&handle, &state, None, None).await {
+                    if let Err(e) = app_state::synchronize(&handle, &state, None, None, false).await
+                    {
                         let _ = handle.emit("background-error", e.to_string());
                     }
                 }

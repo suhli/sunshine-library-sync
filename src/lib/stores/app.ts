@@ -10,7 +10,7 @@ import { providers } from './providers';
 import { games } from './games';
 import { sunshine } from './sunshine';
 import { settings } from './settings';
-import { syncBusy, scanning, lastSync, preview, previewOpen, appError, paused } from './sync';
+import { syncBusy, scanning, lastSync, preview, previewOpen, backupFailure, backupPromptOpen, appError, paused } from './sync';
 import { fixtureMode, systemLocale, tr } from '$lib/i18n';
 
 export const page = writable<'Overview' | 'Games' | 'Providers' | 'Sunshine' | 'Settings'>('Overview');
@@ -48,11 +48,38 @@ export async function showPreview() {
   syncBusy.set(true);
   try { preview.set(await sunshineApi.previewSync()); previewOpen.set(true); } catch (error) { report(error); } finally { syncBusy.set(false); }
 }
-export async function sync(revision: string | null = null, key: string | null = null) {
+async function runSync(revision: string | null, key: string | null, allowWithoutBackup: boolean) {
   if (get(syncBusy)) return;
   syncBusy.set(true);
-  try { const result = await sunshineApi.syncSunshine(revision, key); syncMessage(result); previewOpen.set(false); accept(await sunshineApi.getSnapshot()); }
+  try {
+    const attempt = await sunshineApi.syncSunshine(revision, key, allowWithoutBackup);
+    if (attempt.status === 'backup_failed') {
+      if (allowWithoutBackup) { report(attempt.reason); return; }
+      backupFailure.set({ ...attempt, game_key: key });
+      previewOpen.set(false);
+      backupPromptOpen.set(true);
+      return;
+    }
+    syncMessage(attempt.result);
+    previewOpen.set(false);
+    accept(await sunshineApi.getSnapshot());
+  }
   catch (error) { report(error); } finally { syncBusy.set(false); }
+}
+export async function sync(revision: string | null = null, key: string | null = null) {
+  backupPromptOpen.set(false);
+  backupFailure.set(null);
+  await runSync(revision, key, false);
+}
+export function dismissBackupFailure() {
+  backupPromptOpen.set(false);
+  backupFailure.set(null);
+}
+export async function continueWithoutBackup() {
+  const failure = get(backupFailure);
+  if (!failure || get(syncBusy)) return;
+  dismissBackupFailure();
+  await runSync(failure.revision, failure.game_key, true);
 }
 export async function persist(value: Settings) { const saved = await settingsApi.saveSettings(value); settings.set(saved); return saved; }
 let settingsOperations: Promise<void> = Promise.resolve();

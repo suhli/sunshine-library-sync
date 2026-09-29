@@ -5,9 +5,25 @@ use fs2::FileExt;
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
 };
+
+#[derive(Debug)]
+pub struct BackupFailure {
+    pub path: PathBuf,
+    pub revision: String,
+    pub reason: String,
+}
+
+impl fmt::Display for BackupFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unable to back up Sunshine apps.json: {}", self.reason)
+    }
+}
+
+impl std::error::Error for BackupFailure {}
 
 pub struct Plan {
     pub document: Value,
@@ -205,6 +221,22 @@ pub fn sync(
     apply: bool,
     expected_revision: Option<&str>,
 ) -> Result<SyncResult> {
+    sync_with_backup_policy(root, settings, snapshot, apply, expected_revision, false)
+}
+
+/// A backup override is valid only for an explicit retry of the exact preview
+/// that produced a backup failure. Background sync always calls `sync`.
+pub fn sync_with_backup_policy(
+    root: &Path,
+    settings: &Settings,
+    snapshot: &ScanSnapshot,
+    apply: bool,
+    expected_revision: Option<&str>,
+    allow_without_backup: bool,
+) -> Result<SyncResult> {
+    if allow_without_backup && (!apply || expected_revision.is_none()) {
+        bail!("Continuing without a backup requires a confirmed sync revision");
+    }
     let path = sunshine::apps_path(&settings.sunshine)?;
     let state_root = state_directory(root, &path);
     let _guard = lock(&state_root)?;
@@ -264,7 +296,6 @@ pub fn sync(
             after: storage::hash(&bytes),
             state: plan.state.clone(),
         };
-        storage::write_json(&state_root.join("pending-sync.json"), &journal)?;
         // An external editor may not honor our lock. Detect changes immediately
         // before replacement. No destructive delete/rename fallback is allowed.
         if fs::read(&path)? != original {
@@ -276,11 +307,23 @@ pub fn sync(
                 .context("Invalid apps path")?
                 .to_string_lossy()
         ));
-        storage::atomic_write(&backup, &original)
-            .context("Unable to back up Sunshine apps.json")?;
+        if let Err(error) = storage::atomic_write(&backup, &original) {
+            let reason = format!("{error:#}");
+            tracing::warn!(path = %backup.display(), reason = %reason, "Unable to back up Sunshine apps.json");
+            if !allow_without_backup {
+                return Err(BackupFailure {
+                    path: backup,
+                    revision: result.preview.revision.clone(),
+                    reason,
+                }
+                .into());
+            }
+            tracing::warn!("Continuing sync without a backup after explicit confirmation");
+        }
         if fs::read(&path)? != original {
             bail!("Sunshine apps.json changed during backup. Sync cancelled.");
         }
+        storage::write_json(&state_root.join("pending-sync.json"), &journal)?;
         storage::atomic_write(&path, &bytes)
             .context("Sunshine apps.json was not updated; check write permissions")?;
         plan.state

@@ -5,6 +5,7 @@ use crate::{
     models::*,
     network::{ConnectionTest, NetworkService},
     providers, sunshine,
+    sync::engine::BackupFailure,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -16,6 +17,19 @@ type Cmd<T> = Result<T, String>;
 pub struct RuntimeInfo {
     pub system_locale: String,
     pub fixture_mode: bool,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SyncAttempt {
+    Completed {
+        result: SyncResult,
+    },
+    BackupFailed {
+        backup_path: String,
+        reason: String,
+        revision: String,
+    },
 }
 
 #[tauri::command]
@@ -78,12 +92,21 @@ pub async fn get_sync_preview(app: AppHandle, state: State<'_, Arc<AppState>>) -
 pub async fn sync_sunshine(
     revision: Option<String>,
     game_key: Option<String>,
+    allow_without_backup: bool,
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
-) -> Cmd<SyncResult> {
-    app_state::synchronize(&app, &state, revision, game_key)
-        .await
-        .map_err(|e| e.to_string())
+) -> Cmd<SyncAttempt> {
+    match app_state::synchronize(&app, &state, revision, game_key, allow_without_backup).await {
+        Ok(result) => Ok(SyncAttempt::Completed { result }),
+        Err(error) => match error.downcast_ref::<BackupFailure>() {
+            Some(failure) => Ok(SyncAttempt::BackupFailed {
+                backup_path: failure.path.to_string_lossy().into_owned(),
+                reason: failure.reason.clone(),
+                revision: failure.revision.clone(),
+            }),
+            None => Err(format!("{error:#}")),
+        },
+    }
 }
 #[tauri::command]
 pub async fn save_settings(

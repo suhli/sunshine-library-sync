@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import SyncPreview from '$lib/components/SyncPreview.svelte';
+  import BackupFailureDialog from '$lib/components/BackupFailureDialog.svelte';
   import Status from '$lib/components/Status.svelte';
   import Overview from './views/Overview.svelte';
   import Games from './views/Games.svelte';
@@ -34,4 +35,5 @@
   <footer class="statusbar"><Status value={$sunshine.service_status} label={$t($sunshine.service_status === 'running' ? 'Sunshine running' : $sunshine.detected ? 'Sunshine detected' : 'Sunshine not detected')} /><span>{$t($scanning ? 'Scanning libraries…' : $syncBusy ? 'Syncing…' : 'Ready')}</span><span class="right">{$t($paused ? 'Auto Sync paused' : $settings.general.auto_sync ? 'Auto Sync on' : 'Auto Sync off')}</span></footer>
 </div>
 <SyncPreview />
+<BackupFailureDialog />
 {#if $toast}<div class="toast" class:error={$toast.error} role={$toast.error ? 'alert' : 'status'}>{#if $toast.error}<Info size={16} />{:else}<Check size={16} />{/if}<span style="flex: 1">{$toast.text}</span><button aria-label={$t('Dismiss notification')} onclick={() => $toast = null}><X size={14} /></button></div>{/if}

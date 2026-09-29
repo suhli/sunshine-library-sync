@@ -73,7 +73,7 @@ pub fn start(app: AppHandle, state: Arc<AppState>) {
                 _ = tokio::time::sleep_until(deadline), if pending.is_some() => {
                     pending = None;
                     let result = if state.settings().general.auto_sync && !state.paused.load(Ordering::Relaxed) {
-                        app_state::synchronize(&app, &state, None, None).await.map(|_| ())
+                        app_state::synchronize(&app, &state, None, None, false).await.map(|_| ())
                     } else { app_state::refresh(&app, &state).await.map(|_| ()) };
                     if let Err(e) = result { let _ = app.emit("background-error", e.to_string()); }
                     app_state::queue_artwork(app.clone(), state.clone());

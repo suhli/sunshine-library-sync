@@ -128,6 +128,7 @@ pub async fn synchronize(
     state: &Arc<AppState>,
     expected: Option<String>,
     only_key: Option<String>,
+    allow_without_backup: bool,
 ) -> Result<SyncResult> {
     let _guard = state.operation.lock().await;
     state.check()?;
@@ -144,7 +145,14 @@ pub async fn synchronize(
         settings.excluded_games.retain(|k| k == &key);
     }
     let result = tauri::async_runtime::spawn_blocking(move || {
-        engine::sync(&root, &settings, &scan, true, expected.as_deref())
+        engine::sync_with_backup_policy(
+            &root,
+            &settings,
+            &scan,
+            true,
+            expected.as_deref(),
+            allow_without_backup,
+        )
     })
     .await??;
     refresh_inner(app, state).await?;
@@ -191,7 +199,7 @@ pub fn queue_artwork(app: AppHandle, state: Arc<AppState>) {
         if changed && !state.cancel.is_cancelled() {
             let _ = refresh(&app, &state).await;
             if state.settings().general.auto_sync && !state.paused.load(Ordering::Relaxed) {
-                if let Err(e) = synchronize(&app, &state, None, None).await {
+                if let Err(e) = synchronize(&app, &state, None, None, false).await {
                     let _ = app.emit("background-error", e.to_string());
                 }
             }

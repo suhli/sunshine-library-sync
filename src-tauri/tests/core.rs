@@ -34,13 +34,81 @@ fn failed_backup_never_advances_state_or_changes_apps() {
         games: vec![game("steam", "1", "Game")],
         ..Default::default()
     };
-    assert!(engine::sync(temp.path(), &settings, &snapshot, true, None).is_err());
+    let error = engine::sync(temp.path(), &settings, &snapshot, true, None).unwrap_err();
+    let failure = error.downcast_ref::<engine::BackupFailure>().unwrap();
+    assert_eq!(failure.path, temp.path().join("apps.json.bak"));
+    assert!(!failure.reason.is_empty());
     assert_eq!(fs::read(&path).unwrap(), before);
+    assert!(!engine::state_directory(temp.path(), &path)
+        .join("pending-sync.json")
+        .exists());
     assert!(
         ManagedState::load(&engine::state_directory(temp.path(), &path))
             .unwrap()
             .entries
             .is_empty()
+    );
+}
+
+#[test]
+fn confirmed_backup_failure_rechecks_revision_before_unbacked_sync() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("apps.json");
+    storage::write_json(&path, &fixture()).unwrap();
+    fs::create_dir(temp.path().join("apps.json.bak")).unwrap();
+    let mut settings = Settings::default();
+    settings.sunshine.apps_path = Some(path.clone());
+    let snapshot = ScanSnapshot {
+        games: vec![game("steam", "1", "Game")],
+        ..Default::default()
+    };
+    let revision = engine::sync(temp.path(), &settings, &snapshot, false, None)
+        .unwrap()
+        .preview
+        .revision;
+    assert!(
+        engine::sync_with_backup_policy(temp.path(), &settings, &snapshot, true, None, true)
+            .is_err()
+    );
+    let mut external = fixture();
+    external["apps"][0]["name"] = "Externally edited".into();
+    storage::write_json(&path, &external).unwrap();
+    assert!(engine::sync_with_backup_policy(
+        temp.path(),
+        &settings,
+        &snapshot,
+        true,
+        Some(&revision),
+        true
+    )
+    .is_err());
+    assert_eq!(sunshine::read_apps(&path).unwrap().1, external);
+    storage::write_json(&path, &fixture()).unwrap();
+    let result = engine::sync_with_backup_policy(
+        temp.path(),
+        &settings,
+        &snapshot,
+        true,
+        Some(&revision),
+        true,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert_eq!(result.preview.added.len(), 1);
+    assert!(temp.path().join("apps.json.bak").is_dir());
+    assert_eq!(
+        sunshine::read_apps(&path).unwrap().1["apps"]
+            .as_array()
+            .unwrap()
+            .len(),
+        fixture()["apps"].as_array().unwrap().len() + 1
+    );
+    assert_eq!(
+        ManagedState::load(&engine::state_directory(temp.path(), &path))
+            .unwrap()
+            .entries
+            .len(),
+        1
     );
 }
 
