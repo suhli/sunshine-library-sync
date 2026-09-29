@@ -4,8 +4,9 @@ export interface ProviderInfo { id: string; display_name: string; icon: string; 
 export interface Change { key: string; name: string; provider_id: string }
 export interface SyncPreview { added: Change[]; updated: Change[]; removed: Change[]; unchanged: number; warnings: string[]; conflicts: Change[]; revision: string }
 export interface SyncResult { preview: SyncPreview; changed: boolean; completed_at: number; reload_error: string | null }
-export type SyncAttempt = { status: 'completed'; result: SyncResult } | { status: 'backup_failed'; backup_path: string; reason: string; revision: string };
+export type SyncAttempt = { status: 'completed'; result: SyncResult } | { status: 'backup_failed'; backup_path: string; reason: string; revision: string } | { status: 'permission_required'; path: string; backup_path: string | null; reason: string };
 export interface PendingBackupFailure { backup_path: string; reason: string; revision: string; game_key: string | null }
+export interface PermissionFailure { path: string; backup_path: string | null; reason: string }
 export interface SunshineStatus { detected: boolean; install_path: string | null; apps_path: string | null; version: string | null; service_name: string | null; service_status: string; applications: number; managed: number; error: string | null }
 export interface Snapshot { scan: { providers: ProviderInfo[]; games: Game[]; authoritative_providers: string[]; watch_paths: string[] }; sunshine: SunshineStatus; last_sync: SyncResult | null; preview: SyncPreview | null; error: string | null; scanning: boolean }
 export interface Settings {

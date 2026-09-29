@@ -1,6 +1,17 @@
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use std::{fs, io::Write, path::Path};
+use std::{fmt, fs, io::Write, path::Path};
+
+#[derive(Debug)]
+pub struct TargetWriteDenied(pub std::io::Error);
+
+impl fmt::Display for TargetWriteDenied {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for TargetWriteDenied {}
 
 pub fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -48,14 +59,20 @@ pub fn atomic_write_staged(path: &Path, data: &[u8], staging_dir: &Path) -> Resu
             )
         };
         if ok == 0 {
-            return Err(std::io::Error::last_os_error())
-                .context("Atomic replacement failed; check file permissions, open editors, and that the staging directory is on the same volume");
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                return Err(TargetWriteDenied(error).into());
+            }
+            return Err(error).context("Atomic replacement failed; check file permissions, open editors, and that the staging directory is on the same volume");
         }
         return Ok(());
     }
-    tmp.persist(path)
-        .map_err(|e| e.error)
-        .context("Unable to atomically replace file")?;
+    if let Err(error) = tmp.persist(path) {
+        if error.error.kind() == std::io::ErrorKind::PermissionDenied {
+            return Err(TargetWriteDenied(error.error).into());
+        }
+        return Err(error.error).context("Unable to atomically replace file");
+    }
     Ok(())
 }
 

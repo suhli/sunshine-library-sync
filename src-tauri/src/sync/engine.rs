@@ -17,6 +17,21 @@ pub struct BackupFailure {
     pub reason: String,
 }
 
+#[derive(Debug)]
+pub struct WritePermissionFailure {
+    pub path: PathBuf,
+    pub backup_path: Option<PathBuf>,
+    pub reason: String,
+}
+
+impl fmt::Display for WritePermissionFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unable to update Sunshine apps.json: {}", self.reason)
+    }
+}
+
+impl std::error::Error for WritePermissionFailure {}
+
 impl fmt::Display for BackupFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Unable to back up Sunshine apps.json: {}", self.reason)
@@ -325,7 +340,16 @@ pub fn sync_with_backup_policy(
             backup_skipped: !backup_saved,
         };
         storage::write_json(&state_root.join("pending-sync.json"), &journal)?;
-        storage::atomic_write_staged(&path, &bytes, &state_root).with_context(|| {
+        if let Err(error) = storage::atomic_write_staged(&path, &bytes, &state_root) {
+            if error.downcast_ref::<storage::TargetWriteDenied>().is_some() {
+                return Err(WritePermissionFailure {
+                    path: path.clone(),
+                    backup_path: backup_saved.then_some(backup.clone()),
+                    reason: format!("{error:#}"),
+                }
+                .into());
+            }
+            return Err(error).with_context(|| {
             if backup_saved {
                 format!(
                     "Sunshine apps.json was not updated; backup saved at {}. Check write permissions for {}",
@@ -338,7 +362,8 @@ pub fn sync_with_backup_policy(
                     path.display()
                 )
             }
-        })?;
+            });
+        }
         plan.state
             .save(&state_root)
             .context("apps.json was written; state recovery will run on next sync")?;

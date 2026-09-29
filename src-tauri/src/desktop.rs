@@ -1,7 +1,7 @@
 use crate::{
     app_state::{self, AppState},
     commands, config, locale,
-    sync::engine::BackupFailure,
+    sync::engine::{BackupFailure, WritePermissionFailure},
     watcher,
 };
 
@@ -46,7 +46,7 @@ fn show(app: &tauri::AppHandle) {
         let _ = w.set_focus();
     }
 }
-fn quit(app: tauri::AppHandle) {
+pub(crate) fn quit(app: tauri::AppHandle) {
     let state = app.state::<Arc<AppState>>().inner().clone();
     state.cancel.cancel();
     tauri::async_runtime::spawn(async move {
@@ -56,6 +56,7 @@ fn quit(app: tauri::AppHandle) {
     });
 }
 pub fn run() {
+    crate::elevation::wait_for_previous_instance();
     let root = config::data_root();
     let _ = std::fs::create_dir_all(root.join("logs"));
     let log = tracing_appender::rolling::Builder::new()
@@ -91,6 +92,7 @@ pub fn run() {
             commands::scan_provider,
             commands::get_sync_preview,
             commands::sync_sunshine,
+            commands::restart_as_admin,
             commands::save_settings,
             commands::set_game_excluded,
             commands::restart_sunshine,
@@ -176,6 +178,16 @@ pub fn run() {
                                             "game_key": null,
                                         }),
                                     );
+                                } else if let Some(failure) = e.downcast_ref::<WritePermissionFailure>() {
+                                    show(&app);
+                                    let _ = app.emit(
+                                        "sync-permission-required",
+                                        serde_json::json!({
+                                            "path": failure.path.to_string_lossy(),
+                                            "backup_path": failure.backup_path.as_ref().map(|path| path.to_string_lossy()),
+                                            "reason": failure.reason,
+                                        }),
+                                    );
                                 } else {
                                     let _ = app.emit("background-error", format!("{e:#}"));
                                 }
@@ -219,10 +231,26 @@ pub fn run() {
                     drop(snapshot);
                     state.emit(&handle);
                 }
-                if state.startup_error.is_none() && state.settings().general.auto_sync {
+                let elevated_retry = std::env::args().any(|argument| argument == "--wait-for-pid");
+                if state.startup_error.is_none()
+                    && state.settings().general.auto_sync
+                    && !elevated_retry
+                {
                     if let Err(e) = app_state::synchronize(&handle, &state, None, None, false).await
                     {
-                        let _ = handle.emit("background-error", e.to_string());
+                        if let Some(failure) = e.downcast_ref::<WritePermissionFailure>() {
+                            show(&handle);
+                            let _ = handle.emit(
+                                "sync-permission-required",
+                                serde_json::json!({
+                                    "path": failure.path.to_string_lossy(),
+                                    "backup_path": failure.backup_path.as_ref().map(|path| path.to_string_lossy()),
+                                    "reason": failure.reason,
+                                }),
+                            );
+                        } else {
+                            let _ = handle.emit("background-error", e.to_string());
+                        }
                     }
                 }
                 app_state::queue_artwork(handle, state);

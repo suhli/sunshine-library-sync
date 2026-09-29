@@ -5,12 +5,12 @@ import * as providerApi from '$lib/api/providers';
 import * as sunshineApi from '$lib/api/sunshine';
 import * as settingsApi from '$lib/api/settings';
 import * as gamesApi from '$lib/api/games';
-import type { PendingBackupFailure, Settings, Snapshot, SyncResult } from '$lib/types';
+import type { PendingBackupFailure, PermissionFailure, Settings, Snapshot, SyncResult } from '$lib/types';
 import { providers } from './providers';
 import { games } from './games';
 import { sunshine } from './sunshine';
 import { settings } from './settings';
-import { syncBusy, scanning, lastSync, preview, previewOpen, backupFailure, backupPromptOpen, appError, paused } from './sync';
+import { syncBusy, scanning, lastSync, preview, previewOpen, backupFailure, backupPromptOpen, permissionFailure, permissionPromptOpen, appError, paused } from './sync';
 import { fixtureMode, systemLocale, tr } from '$lib/i18n';
 
 export const page = writable<'Overview' | 'Games' | 'Providers' | 'Sunshine' | 'Settings'>('Overview');
@@ -23,6 +23,11 @@ function presentBackupFailure(failure: PendingBackupFailure) {
   backupFailure.set(failure);
   previewOpen.set(false);
   backupPromptOpen.set(true);
+}
+function presentPermissionFailure(failure: PermissionFailure) {
+  permissionFailure.set(failure);
+  previewOpen.set(false);
+  permissionPromptOpen.set(true);
 }
 function syncMessage(result: SyncResult) {
   const p = result.preview;
@@ -38,6 +43,7 @@ export async function initialize(): Promise<() => void> {
     off.push(await listen<Snapshot>('library-updated', event => accept(event.payload)));
     off.push(await listen<string>('background-error', event => appError.set(event.payload)));
     off.push(await listen<PendingBackupFailure>('sync-backup-failed', event => presentBackupFailure(event.payload)));
+    off.push(await listen<PermissionFailure>('sync-permission-required', event => presentPermissionFailure(event.payload)));
     off.push(await listen<boolean>('auto-sync-paused', event => paused.set(event.payload)));
     off.push(await listen<SyncResult>('sync-completed', event => { lastSync.set(event.payload); if (!get(syncBusy)) syncMessage(event.payload); }));
     settings.set(await settingsApi.getSettings()); accept(await sunshineApi.getSnapshot());
@@ -64,6 +70,10 @@ async function runSync(revision: string | null, key: string | null, allowWithout
       presentBackupFailure({ ...attempt, game_key: key });
       return;
     }
+    if (attempt.status === 'permission_required') {
+      presentPermissionFailure(attempt);
+      return;
+    }
     syncMessage(attempt.result);
     previewOpen.set(false);
     accept(await sunshineApi.getSnapshot());
@@ -84,6 +94,17 @@ export async function continueWithoutBackup() {
   if (!failure || get(syncBusy)) return;
   dismissBackupFailure();
   await runSync(failure.revision, failure.game_key, true);
+}
+export function dismissPermissionFailure() {
+  permissionPromptOpen.set(false);
+  permissionFailure.set(null);
+}
+export async function restartElevated() {
+  if (get(syncBusy)) return;
+  syncBusy.set(true);
+  try { await sunshineApi.restartAsAdmin(); }
+  catch (error) { report(error); }
+  finally { syncBusy.set(false); }
 }
 export async function persist(value: Settings) { const saved = await settingsApi.saveSettings(value); settings.set(saved); return saved; }
 let settingsOperations: Promise<void> = Promise.resolve();

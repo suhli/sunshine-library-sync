@@ -5,7 +5,7 @@ use crate::{
     models::*,
     network::{ConnectionTest, NetworkService},
     providers, sunshine,
-    sync::engine::BackupFailure,
+    sync::engine::{BackupFailure, WritePermissionFailure},
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -29,6 +29,11 @@ pub enum SyncAttempt {
         backup_path: String,
         reason: String,
         revision: String,
+    },
+    PermissionRequired {
+        path: String,
+        backup_path: Option<String>,
+        reason: String,
     },
 }
 
@@ -98,15 +103,34 @@ pub async fn sync_sunshine(
 ) -> Cmd<SyncAttempt> {
     match app_state::synchronize(&app, &state, revision, game_key, allow_without_backup).await {
         Ok(result) => Ok(SyncAttempt::Completed { result }),
-        Err(error) => match error.downcast_ref::<BackupFailure>() {
-            Some(failure) => Ok(SyncAttempt::BackupFailed {
-                backup_path: failure.path.to_string_lossy().into_owned(),
-                reason: failure.reason.clone(),
-                revision: failure.revision.clone(),
-            }),
-            None => Err(format!("{error:#}")),
-        },
+        Err(error) => {
+            if let Some(failure) = error.downcast_ref::<BackupFailure>() {
+                return Ok(SyncAttempt::BackupFailed {
+                    backup_path: failure.path.to_string_lossy().into_owned(),
+                    reason: failure.reason.clone(),
+                    revision: failure.revision.clone(),
+                });
+            }
+            if let Some(failure) = error.downcast_ref::<WritePermissionFailure>() {
+                return Ok(SyncAttempt::PermissionRequired {
+                    path: failure.path.to_string_lossy().into_owned(),
+                    backup_path: failure
+                        .backup_path
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned()),
+                    reason: failure.reason.clone(),
+                });
+            }
+            Err(format!("{error:#}"))
+        }
     }
+}
+
+#[tauri::command]
+pub fn restart_as_admin(app: AppHandle) -> Cmd<()> {
+    crate::elevation::restart_as_admin().map_err(|error| format!("{error:#}"))?;
+    crate::desktop::quit(app);
+    Ok(())
 }
 #[tauri::command]
 pub async fn save_settings(

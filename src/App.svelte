@@ -6,6 +6,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import SyncPreview from '$lib/components/SyncPreview.svelte';
   import BackupFailureDialog from '$lib/components/BackupFailureDialog.svelte';
+  import PermissionFailureDialog from '$lib/components/PermissionFailureDialog.svelte';
   import Status from '$lib/components/Status.svelte';
   import Overview from './views/Overview.svelte';
   import Games from './views/Games.svelte';
@@ -37,4 +38,5 @@
 </div>
 <SyncPreview />
 <BackupFailureDialog />
+<PermissionFailureDialog />
 {#if $toast}<div class="toast" class:error={$toast.error} role={$toast.error ? 'alert' : 'status'}>{#if $toast.error}<Info size={16} />{:else}<Check size={16} />{/if}<span style="flex: 1">{$toast.text}</span><button aria-label={$t('Dismiss notification')} onclick={() => $toast = null}><X size={14} /></button></div>{/if}
