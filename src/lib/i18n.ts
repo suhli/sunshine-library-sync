@@ -16,7 +16,7 @@ export const locale = derived([settings, systemLocale], ([$settings, $systemLoca
 // English source strings also serve as the fallback when a new UI message has not been translated.
 const zh: Record<string, string> = {
   'Overview': '概览', 'Games': '游戏', 'Providers': '游戏平台', 'Sunshine': 'Sunshine', 'Settings': '设置',
-  'On': '开启', 'Off': '关闭', 'Local games. Simply synced.': '本地游戏，轻松同步。', 'Version 0.1.0': '版本 0.1.0',
+  'On': '开启', 'Off': '关闭', 'Local games. Simply synced.': '本地游戏，轻松同步。',
   'Main navigation': '主导航', 'More actions': '更多操作', 'Sync Now': '立即同步', 'Syncing…': '正在同步…',
   'Refresh': '刷新', 'Preview Sync': '预览同步', 'Restart Sunshine': '重启 Sunshine', 'Open Logs': '打开日志',
   'Desktop preview': '桌面预览', 'Open the Windows app to detect local games and connect Sunshine.': '请打开 Windows 应用，以检测本地游戏并连接 Sunshine。',
