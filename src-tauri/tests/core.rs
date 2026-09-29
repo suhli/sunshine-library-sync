@@ -27,7 +27,8 @@ fn failed_backup_never_advances_state_or_changes_apps() {
     let path = temp.path().join("apps.json");
     storage::write_json(&path, &fixture()).unwrap();
     let before = fs::read(&path).unwrap();
-    fs::create_dir(temp.path().join("apps.json.bak")).unwrap();
+    let state_root = engine::state_directory(temp.path(), &path);
+    fs::create_dir_all(state_root.join("apps.json.bak")).unwrap();
     let mut settings = Settings::default();
     settings.sunshine.apps_path = Some(path.clone());
     let snapshot = ScanSnapshot {
@@ -36,18 +37,11 @@ fn failed_backup_never_advances_state_or_changes_apps() {
     };
     let error = engine::sync(temp.path(), &settings, &snapshot, true, None).unwrap_err();
     let failure = error.downcast_ref::<engine::BackupFailure>().unwrap();
-    assert_eq!(failure.path, temp.path().join("apps.json.bak"));
+    assert_eq!(failure.path, state_root.join("apps.json.bak"));
     assert!(!failure.reason.is_empty());
     assert_eq!(fs::read(&path).unwrap(), before);
-    assert!(!engine::state_directory(temp.path(), &path)
-        .join("pending-sync.json")
-        .exists());
-    assert!(
-        ManagedState::load(&engine::state_directory(temp.path(), &path))
-            .unwrap()
-            .entries
-            .is_empty()
-    );
+    assert!(!state_root.join("pending-sync.json").exists());
+    assert!(ManagedState::load(&state_root).unwrap().entries.is_empty());
 }
 
 #[test]
@@ -55,7 +49,8 @@ fn confirmed_backup_failure_rechecks_revision_before_unbacked_sync() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("apps.json");
     storage::write_json(&path, &fixture()).unwrap();
-    fs::create_dir(temp.path().join("apps.json.bak")).unwrap();
+    let state_root = engine::state_directory(temp.path(), &path);
+    fs::create_dir_all(state_root.join("apps.json.bak")).unwrap();
     let mut settings = Settings::default();
     settings.sunshine.apps_path = Some(path.clone());
     let snapshot = ScanSnapshot {
@@ -95,7 +90,7 @@ fn confirmed_backup_failure_rechecks_revision_before_unbacked_sync() {
     .unwrap();
     assert!(result.changed);
     assert_eq!(result.preview.added.len(), 1);
-    assert!(temp.path().join("apps.json.bak").is_dir());
+    assert!(state_root.join("apps.json.bak").is_dir());
     assert_eq!(
         sunshine::read_apps(&path).unwrap().1["apps"]
             .as_array()
@@ -599,9 +594,10 @@ fn transaction_creates_backup_and_noop_preserves_bytes_and_mtime() {
             .changed
     );
     assert_eq!(
-        fs::read(temp.path().join("apps.json.bak")).unwrap(),
+        fs::read(engine::state_directory(temp.path(), &path).join("apps.json.bak")).unwrap(),
         original
     );
+    assert!(!temp.path().join("apps.json.bak").exists());
     let before = fs::read(&path).unwrap();
     let time = fs::metadata(&path).unwrap().modified().unwrap();
     assert!(
@@ -645,6 +641,20 @@ fn atomic_write_replaces_without_truncation() {
     storage::atomic_write(&path, b"new data").unwrap();
     assert_eq!(fs::read(path).unwrap(), b"new data");
 }
+
+#[test]
+fn atomic_write_can_stage_outside_the_target_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let target_dir = temp.path().join("sunshine");
+    let staging_dir = temp.path().join("app-data");
+    fs::create_dir(&target_dir).unwrap();
+    let path = target_dir.join("apps.json");
+    fs::write(&path, b"old").unwrap();
+    storage::atomic_write_staged(&path, b"new data", &staging_dir).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"new data");
+    assert_eq!(fs::read_dir(&target_dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&staging_dir).unwrap().count(), 0);
+}
 #[test]
 fn recovery_finishes_committed_state_without_repeating_apps_write() {
     let temp = tempfile::tempdir().unwrap();
@@ -660,8 +670,13 @@ fn recovery_finishes_committed_state_without_repeating_apps_write() {
         before: storage::hash(b"before"),
         after: storage::hash(after),
         state: s,
+        backup_path: None,
+        backup_skipped: false,
     };
-    storage::write_json(&temp.path().join("pending-sync.json"), &j).unwrap();
+    let mut legacy = serde_json::to_value(&j).unwrap();
+    legacy.as_object_mut().unwrap().remove("backup_path");
+    legacy.as_object_mut().unwrap().remove("backup_skipped");
+    storage::write_json(&temp.path().join("pending-sync.json"), &legacy).unwrap();
     state::recover(temp.path()).unwrap();
     assert!(ManagedState::load(temp.path()).unwrap().apps_path.is_some());
     assert!(!temp.path().join("pending-sync.json").exists());
@@ -676,9 +691,12 @@ fn recovery_rejects_ambiguous_external_changes() {
         before: storage::hash(b"before"),
         after: storage::hash(b"after"),
         state: ManagedState::default(),
+        backup_path: Some(temp.path().join("apps.json.bak")),
+        backup_skipped: false,
     };
     storage::write_json(&temp.path().join("pending-sync.json"), &j).unwrap();
-    assert!(state::recover(temp.path()).is_err());
+    let error = state::recover(temp.path()).unwrap_err();
+    assert!(error.to_string().contains("apps.json.bak"));
     assert!(!temp.path().join("state.json").exists());
     assert_eq!(fs::read(path).unwrap(), b"external");
 }

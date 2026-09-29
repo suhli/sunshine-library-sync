@@ -290,42 +290,55 @@ pub fn sync_with_backup_policy(
         bytes.push(b'\n');
         plan.state.apps_path = Some(path.clone());
         plan.state.last_sync = Some(result.clone());
-        let journal = Journal {
-            apps_path: path.clone(),
-            before: storage::hash(&original),
-            after: storage::hash(&bytes),
-            state: plan.state.clone(),
-        };
+        let backup = state_root.join("apps.json.bak");
         // An external editor may not honor our lock. Detect changes immediately
         // before replacement. No destructive delete/rename fallback is allowed.
         if fs::read(&path)? != original {
             bail!("Sunshine apps.json changed during sync. Retry after closing its editor.");
         }
-        let backup = path.with_file_name(format!(
-            "{}.bak",
-            path.file_name()
-                .context("Invalid apps path")?
-                .to_string_lossy()
-        ));
-        if let Err(error) = storage::atomic_write(&backup, &original) {
-            let reason = format!("{error:#}");
-            tracing::warn!(path = %backup.display(), reason = %reason, "Unable to back up Sunshine apps.json");
-            if !allow_without_backup {
-                return Err(BackupFailure {
-                    path: backup,
-                    revision: result.preview.revision.clone(),
-                    reason,
+        let backup_saved = match storage::atomic_write(&backup, &original) {
+            Ok(()) => true,
+            Err(error) => {
+                let reason = format!("{error:#}");
+                tracing::warn!(path = %backup.display(), reason = %reason, "Unable to back up Sunshine apps.json");
+                if !allow_without_backup {
+                    return Err(BackupFailure {
+                        path: backup,
+                        revision: result.preview.revision.clone(),
+                        reason,
+                    }
+                    .into());
                 }
-                .into());
+                tracing::warn!("Continuing sync without a backup after explicit confirmation");
+                false
             }
-            tracing::warn!("Continuing sync without a backup after explicit confirmation");
-        }
+        };
         if fs::read(&path)? != original {
             bail!("Sunshine apps.json changed during backup. Sync cancelled.");
         }
+        let journal = Journal {
+            apps_path: path.clone(),
+            before: storage::hash(&original),
+            after: storage::hash(&bytes),
+            state: plan.state.clone(),
+            backup_path: backup_saved.then_some(backup.clone()),
+            backup_skipped: !backup_saved,
+        };
         storage::write_json(&state_root.join("pending-sync.json"), &journal)?;
-        storage::atomic_write(&path, &bytes)
-            .context("Sunshine apps.json was not updated; check write permissions")?;
+        storage::atomic_write_staged(&path, &bytes, &state_root).with_context(|| {
+            if backup_saved {
+                format!(
+                    "Sunshine apps.json was not updated; backup saved at {}. Check write permissions for {}",
+                    backup.display(),
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Sunshine apps.json was not updated and no backup was saved. Check write permissions for {}",
+                    path.display()
+                )
+            }
+        })?;
         plan.state
             .save(&state_root)
             .context("apps.json was written; state recovery will run on next sync")?;

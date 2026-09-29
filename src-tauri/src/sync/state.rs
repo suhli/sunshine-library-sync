@@ -86,6 +86,10 @@ pub struct Journal {
     pub before: String,
     pub after: String,
     pub state: ManagedState,
+    #[serde(default)]
+    pub backup_path: Option<PathBuf>,
+    #[serde(default)]
+    pub backup_skipped: bool,
 }
 /// Recover the state only if the exact intended apps transaction landed. If
 /// someone edited Sunshine in the meantime, fail closed instead of guessing.
@@ -100,7 +104,17 @@ pub fn recover(root: &Path) -> Result<()> {
     if actual == journal.after {
         journal.state.save(root)?;
     } else if actual != journal.before {
-        bail!("Interrupted sync and external apps.json changes detected. Restore apps.json.bak before retrying; all files have been preserved.");
+        let backup_hint = if journal.backup_skipped {
+            "No backup was saved for this sync.".to_string()
+        } else if let Some(backup) = &journal.backup_path {
+            format!(
+                "Restore the backup at {} before retrying.",
+                backup.display()
+            )
+        } else {
+            "Restore the earlier backup beside apps.json, if present, before retrying.".to_string()
+        };
+        bail!("Interrupted sync and external apps.json changes detected. {backup_hint} All files have been preserved.");
     }
     fs::remove_file(path)?;
     Ok(())

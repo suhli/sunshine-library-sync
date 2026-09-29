@@ -6,13 +6,25 @@ pub fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Same-directory staging + durable flush + atomic replacement. Windows ReplaceFile
-/// retains the destination's ACL, unlike remove-then-rename implementations.
+/// Durable flush + atomic replacement, staging beside the destination by default.
+/// Windows ReplaceFile retains the destination's ACL.
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
     let parent = path.parent().context("File has no parent directory")?;
+    atomic_write_staged(path, data, parent)
+}
+
+/// Stage in a writable directory on the target's volume. This lets us update
+/// an existing file without creating a temporary file in its protected folder.
+pub fn atomic_write_staged(path: &Path, data: &[u8], staging_dir: &Path) -> Result<()> {
+    let parent = path.parent().context("File has no parent directory")?;
     fs::create_dir_all(parent)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .context("Unable to create temporary file; check folder permissions")?;
+    fs::create_dir_all(staging_dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(staging_dir).with_context(|| {
+        format!(
+            "Unable to create temporary file in {}",
+            staging_dir.display()
+        )
+    })?;
     tmp.write_all(data)?;
     tmp.as_file().sync_all()?;
     // ReplaceFileW needs to open the replacement with DELETE access. Close our
@@ -37,7 +49,7 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
         };
         if ok == 0 {
             return Err(std::io::Error::last_os_error())
-                .context("Atomic replacement failed; check permissions or close the other editor");
+                .context("Atomic replacement failed; check file permissions, open editors, and that the staging directory is on the same volume");
         }
         return Ok(());
     }
