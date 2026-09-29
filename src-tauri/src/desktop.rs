@@ -1,6 +1,8 @@
 use crate::{
     app_state::{self, AppState},
-    commands, config, locale, watcher,
+    commands, config, locale,
+    sync::engine::BackupFailure,
+    watcher,
 };
 
 struct TrayItems {
@@ -163,7 +165,20 @@ pub fn run() {
                             if let Err(e) =
                                 app_state::synchronize(&app, &state, None, None, false).await
                             {
-                                let _ = app.emit("background-error", e.to_string());
+                                if let Some(failure) = e.downcast_ref::<BackupFailure>() {
+                                    show(&app);
+                                    let _ = app.emit(
+                                        "sync-backup-failed",
+                                        serde_json::json!({
+                                            "backup_path": failure.path.to_string_lossy(),
+                                            "reason": failure.reason,
+                                            "revision": failure.revision,
+                                            "game_key": null,
+                                        }),
+                                    );
+                                } else {
+                                    let _ = app.emit("background-error", format!("{e:#}"));
+                                }
                             }
                         });
                     }

@@ -5,7 +5,7 @@ import * as providerApi from '$lib/api/providers';
 import * as sunshineApi from '$lib/api/sunshine';
 import * as settingsApi from '$lib/api/settings';
 import * as gamesApi from '$lib/api/games';
-import type { Settings, Snapshot, SyncResult } from '$lib/types';
+import type { PendingBackupFailure, Settings, Snapshot, SyncResult } from '$lib/types';
 import { providers } from './providers';
 import { games } from './games';
 import { sunshine } from './sunshine';
@@ -19,6 +19,11 @@ let toastTimer: ReturnType<typeof setTimeout>;
 export function notify(text: string, error = false) { clearTimeout(toastTimer); toast.set({ text, error }); toastTimer = setTimeout(() => toast.set(null), error ? 12000 : 6000); }
 export function report(error: unknown) { notify(error instanceof Error ? error.message : String(error), true); }
 export function accept(snapshot: Snapshot) { providers.set(snapshot.scan.providers); games.set(snapshot.scan.games); sunshine.set(snapshot.sunshine); lastSync.set(snapshot.last_sync); preview.set(snapshot.preview); appError.set(snapshot.error); scanning.set(snapshot.scanning); }
+function presentBackupFailure(failure: PendingBackupFailure) {
+  backupFailure.set(failure);
+  previewOpen.set(false);
+  backupPromptOpen.set(true);
+}
 function syncMessage(result: SyncResult) {
   const p = result.preview;
   notify(result.reload_error ? tr('Library saved. {error}', { error: result.reload_error }) : result.changed ? tr('Sync completed · {added} added, {updated} updated, {removed} removed', { added: p.added.length, updated: p.updated.length, removed: p.removed.length }) : tr('Library is already up to date.'), !!result.reload_error);
@@ -32,6 +37,7 @@ export async function initialize(): Promise<() => void> {
     fixtureMode.set(runtime.fixture_mode);
     off.push(await listen<Snapshot>('library-updated', event => accept(event.payload)));
     off.push(await listen<string>('background-error', event => appError.set(event.payload)));
+    off.push(await listen<PendingBackupFailure>('sync-backup-failed', event => presentBackupFailure(event.payload)));
     off.push(await listen<boolean>('auto-sync-paused', event => paused.set(event.payload)));
     off.push(await listen<SyncResult>('sync-completed', event => { lastSync.set(event.payload); if (!get(syncBusy)) syncMessage(event.payload); }));
     settings.set(await settingsApi.getSettings()); accept(await sunshineApi.getSnapshot());
@@ -55,9 +61,7 @@ async function runSync(revision: string | null, key: string | null, allowWithout
     const attempt = await sunshineApi.syncSunshine(revision, key, allowWithoutBackup);
     if (attempt.status === 'backup_failed') {
       if (allowWithoutBackup) { report(attempt.reason); return; }
-      backupFailure.set({ ...attempt, game_key: key });
-      previewOpen.set(false);
-      backupPromptOpen.set(true);
+      presentBackupFailure({ ...attempt, game_key: key });
       return;
     }
     syncMessage(attempt.result);
