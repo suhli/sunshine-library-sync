@@ -1,6 +1,6 @@
 [package]
 name = "sunshine-library-sync"
-version = "0.1.0"
+version = "1.0.3"
 description = "A local-first Sunshine library synchronizer for Windows"
 edition = "2021"
 rust-version = "1.90"
